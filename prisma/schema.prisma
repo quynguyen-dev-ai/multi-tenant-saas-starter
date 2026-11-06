@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+/// A tenant. Every tenant-owned row carries an organizationId.
+model Organization {
+  id                   String       @id @default(cuid())
+  name                 String
+  slug                 String       @unique
+  plan                 Plan         @default(FREE)
+  stripeCustomerId     String?      @unique
+  stripeSubscriptionId String?      @unique
+  subscriptionStatus   String?
+  createdAt            DateTime     @default(now())
+  memberships          Membership[]
+  invitations          Invitation[]
+  projects             Project[]
+  auditLogs            AuditLog[]
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role         @default(MEMBER)
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model Invitation {
+  id             String       @id @default(cuid())
+  organizationId String
+  email          String
+  role           Role         @default(MEMBER)
+  /// SHA-256 of the token; the raw token is only ever sent to the invitee.
+  tokenHash      String       @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  invitedById    String
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, email])
+}
+
+/// Example tenant-owned resource. Copy this pattern for your own domain models.
+model Project {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  createdById    String
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  actorId        String?
+  action         String
+  target         String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+}
+
+/// Stripe event ids we've processed, so webhook retries are idempotent.
+model ProcessedWebhookEvent {
+  id          String   @id
+  processedAt DateTime @default(now())
+}
